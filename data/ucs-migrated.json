@@ -1,0 +1,99 @@
+[
+  {
+    "codigo": "P1",
+    "nombre": "Programación 1",
+    "creditos": 12,
+    "semestre": 1,
+    "dictation_semester": "both",
+    "exam_only": false,
+    "prerequisites": []
+  },
+  {
+    "codigo": "GAL1",
+    "nombre": "Geometría y Álgebra Lineal 1",
+    "creditos": 12,
+    "semestre": 1,
+    "dictation_semester": "both",
+    "exam_only": false,
+    "prerequisites": []
+  },
+  {
+    "codigo": "CDI1",
+    "nombre": "Cálculo Diferencial e Integral 1",
+    "creditos": 12,
+    "semestre": 1,
+    "dictation_semester": "both",
+    "exam_only": false,
+    "prerequisites": []
+  },
+  {
+    "codigo": "P2",
+    "nombre": "Programación 2",
+    "creditos": 12,
+    "semestre": 2,
+    "dictation_semester": "both",
+    "exam_only": false,
+    "prerequisites": [
+      {
+        "requirement_id": "simple_p1_req",
+        "description": "Salvar curso P1",
+        "tipo": "SIMPLE",
+        "codigo": "P1",
+        "requiere_curso": true,
+        "requiere_exoneracion": false
+      }
+    ]
+  },
+  {
+    "codigo": "ElecMag",
+    "nombre": "Electromagnetismo",
+    "creditos": 10,
+    "semestre": 6,
+    "dictation_semester": "1",
+    "exam_only": false,
+    "prerequisites": [
+      {
+        "requirement_id": "group_and_example",
+        "description": "Debe tener todas las materias básicas",
+        "tipo": "AND",
+        "condiciones": [
+          {
+            "codigo": "F1",
+            "description": "Salvar curso F1",
+            "requiere_curso": true,
+            "requiere_exoneracion": false
+          },
+          {
+            "codigo": "CDI2",
+            "description": "Exonerar CDI2",
+            "requiere_curso": false,
+            "requiere_exoneracion": true
+          }
+        ]
+      },
+      {
+        "requirement_id": "group_or_example",
+        "description": "Debe tener alguna materia avanzada",
+        "tipo": "OR",
+        "opciones": [
+          {
+            "opcion_id": "option_gal2",
+            "description": "Salvar curso GAL2",
+            "tipo": "SIMPLE",
+            "codigo": "GAL2",
+            "requiere_curso": true,
+            "requiere_exoneracion": false
+          },
+          {
+            "opcion_id": "option_cdi3",
+            "description": "Exonerar CDI3",
+            "tipo": "SIMPLE",
+            "codigo": "CDI3",
+            "requiere_curso": false,
+            "requiere_exoneracion": true
+          }
+        ]
+      }
+    ]
+  }
+]

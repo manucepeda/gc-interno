@@ -1,6 +1,6 @@
 # 🎓 Curriculum Manager - Editor de Unidades Curriculares
 
-Una aplicación web completa para gestionar unidades curriculares con prerequisitos complejos, **ahora con guardado directo al servidor**.
+Una aplicación web completa para gestionar unidades curriculares con previas complejos, **ahora con guardado directo al servidor**.
 
 ## ⭐ Novedades
 

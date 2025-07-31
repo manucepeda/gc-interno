@@ -1,6 +1,6 @@
 /**
  * Curriculum Manager - Modern UI
- * Gestión de Unidades Curriculares con prerequisitos complejos
+ * Gestión de Unidades Curriculares con previas complejos
  */
 
 class CurriculumManager {
@@ -102,9 +102,16 @@ class CurriculumManager {
     }
 
     initAddView() {
-        this.resetForm();
-        this.currentEditingSubject = null;
-        document.getElementById('form-title').textContent = 'Agregar Nueva Materia';
+        // Only reset if we're not in edit mode
+        if (!this.currentEditingSubject) {
+            this.resetForm();
+            document.getElementById('form-title').textContent = 'Agregar Nueva Materia';
+        }
+        // Focus on first input
+        setTimeout(() => {
+            const codigoInput = document.getElementById('codigo');
+            if (codigoInput) codigoInput.focus();
+        }, 100);
     }
 
     initManageView() {
@@ -114,18 +121,47 @@ class CurriculumManager {
     // Data management
     async loadDefaultData() {
         try {
-            const response = await fetch('../data/ucs-migrated.json');
+            // Try to load from backend API first
+            const response = await fetch('/api/subjects');
             if (response.ok) {
                 const data = await response.json();
                 if (Array.isArray(data)) {
                     this.subjects = data.filter(subject => subject && subject.codigo);
                     this.updateStatusInfo();
-                    console.log(`Loaded ${this.subjects.length} subjects`);
+                    console.log(`Loaded ${this.subjects.length} subjects from backend`);
+                    return;
                 }
             }
         } catch (error) {
-            console.log('Could not load default data:', error);
+            console.log('Backend not available, trying local file:', error);
         }
+
+        // Fallback to local file
+        try {
+            const response = await fetch('./data/ucs-migrated.json');
+            if (response.ok) {
+                const data = await response.json();
+                if (Array.isArray(data)) {
+                    this.subjects = data.filter(subject => subject && subject.codigo);
+                    this.updateStatusInfo();
+                    this.updateManageStats();
+                    console.log(`Loaded ${this.subjects.length} subjects from local file`);
+                } else {
+                    console.warn('Invalid data format in local file');
+                    this.subjects = [];
+                }
+            } else {
+                console.log('No local data file found');
+                this.subjects = [];
+            }
+        } catch (error) {
+            console.log('Could not load default data:', error);
+            this.subjects = [];
+        }
+        
+        // Always update UI
+        this.updateStatusInfo();
+        this.updateManageStats();
     }
 
     handleFileLoad(event) {
@@ -139,7 +175,13 @@ class CurriculumManager {
                 if (Array.isArray(data)) {
                     this.subjects = data.filter(subject => subject && subject.codigo);
                     this.updateStatusInfo();
+                    this.saveToBackend(); // Save to backend after import
                     this.showModal('Éxito', `Archivo cargado correctamente. ${this.subjects.length} materias importadas.`);
+                    
+                    // Refresh current view if in search view
+                    if (this.currentView === 'search') {
+                        this.showAllSubjects();
+                    }
                 } else {
                     throw new Error('El archivo debe contener un array de materias');
                 }
@@ -218,8 +260,8 @@ class CurriculumManager {
             return false;
         }
 
-        // Check for duplicate codigo (only if not editing)
-        if (!this.currentEditingSubject) {
+        // Check for duplicate codigo (only if not editing or if codigo changed)
+        if (!this.currentEditingSubject || this.currentEditingSubject.codigo !== data.codigo) {
             const existing = this.subjects.find(s => s.codigo === data.codigo);
             if (existing) {
                 this.showModal('Error', `Ya existe una materia con el código "${data.codigo}"`);
@@ -245,11 +287,14 @@ class CurriculumManager {
     saveSubject(subjectData) {
         try {
             if (this.currentEditingSubject) {
-                // Edit existing
+                // Edit existing - find by original codigo
                 const idx = this.subjects.findIndex(s => s.codigo === this.currentEditingSubject.codigo);
                 if (idx !== -1) {
                     this.subjects[idx] = subjectData;
                     this.showModal('Éxito', 'Materia actualizada correctamente', () => {
+                        this.resetForm();
+                        this.currentEditingSubject = null;
+                        document.getElementById('form-title').textContent = 'Agregar Nueva Materia';
                         this.switchView('search');
                     });
                 }
@@ -261,9 +306,35 @@ class CurriculumManager {
                 });
             }
             this.updateStatusInfo();
+            this.updateManageStats();
+            
+            // Save to backend if available
+            this.saveToBackend();
+            
         } catch (error) {
             console.error('Error saving subject:', error);
             this.showModal('Error', 'Ocurrió un error al guardar la materia');
+        }
+    }
+
+    async saveToBackend() {
+        try {
+            const response = await fetch('/api/subjects/save', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(this.subjects)
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                console.log('Data saved to backend:', result.message);
+            } else {
+                console.warn('Could not save to backend, status:', response.status);
+            }
+        } catch (error) {
+            console.warn('Backend save failed (continuing locally):', error);
         }
     }
 
@@ -412,7 +483,7 @@ class CurriculumManager {
             <div class="prereq-card">
                 <div class="prereq-header">
                     <h4><i class="fas fa-bookmark"></i> Prerequisito Simple</h4>
-                    <button type="button" class="btn btn-danger btn-sm" onclick="this.parentElement.parentElement.remove()">
+                    <button type="button" class="btn btn-danger btn-sm remove-prereq-btn">
                         <i class="fas fa-trash"></i> Eliminar
                     </button>
                 </div>
@@ -450,6 +521,7 @@ class CurriculumManager {
         const descInput = div.querySelector('.prereq-description');
         const cursoCheck = div.querySelector('.prereq-curso');
         const examenCheck = div.querySelector('.prereq-examen');
+        const removeBtn = div.querySelector('.remove-prereq-btn');
         
         const updateDescription = () => {
             const code = codeInput.value.trim().toUpperCase();
@@ -461,9 +533,14 @@ class CurriculumManager {
             }
         };
         
+        // Event listeners
         codeInput.addEventListener('input', updateDescription);
         cursoCheck.addEventListener('change', updateDescription);
         examenCheck.addEventListener('change', updateDescription);
+        removeBtn.addEventListener('click', () => {
+            div.remove();
+            this.checkEmptyState();
+        });
         
         return div;
     }
@@ -485,10 +562,10 @@ class CurriculumManager {
                         <h4>${groupTitle}</h4>
                     </div>
                     <div class="group-actions">
-                        <button type="button" class="btn btn-outline btn-sm" onclick="curriculumManager.addConditionToGroup(this.closest('.prerequisite-group'))">
+                        <button type="button" class="btn btn-outline btn-sm add-condition-btn">
                             <i class="fas fa-plus"></i> Agregar condición
                         </button>
-                        <button type="button" class="btn btn-danger btn-sm" onclick="this.closest('.prerequisite-group').remove()">
+                        <button type="button" class="btn btn-danger btn-sm remove-group-btn">
                             <i class="fas fa-trash"></i>
                         </button>
                     </div>
@@ -506,6 +583,20 @@ class CurriculumManager {
                 </div>
             </div>
         `;
+        
+        // Add event listeners
+        const addConditionBtn = div.querySelector('.add-condition-btn');
+        const removeGroupBtn = div.querySelector('.remove-group-btn');
+        
+        addConditionBtn.addEventListener('click', () => {
+            this.addConditionToGroup(div);
+        });
+        
+        removeGroupBtn.addEventListener('click', () => {
+            div.remove();
+            this.checkEmptyState();
+        });
+        
         return div;
     }
 
@@ -538,7 +629,7 @@ class CurriculumManager {
                         <input type="text" class="condition-description" placeholder="Se generará automáticamente..." readonly>
                     </div>
                     <div class="form-group">
-                        <button type="button" class="btn btn-danger btn-sm" onclick="this.parentElement.parentElement.remove()">
+                        <button type="button" class="btn btn-danger btn-sm remove-condition-btn">
                             <i class="fas fa-times"></i>
                         </button>
                     </div>
@@ -563,6 +654,7 @@ class CurriculumManager {
         const descInput = div.querySelector('.condition-description');
         const cursoCheck = div.querySelector('.condition-curso');
         const examenCheck = div.querySelector('.condition-examen');
+        const removeBtn = div.querySelector('.remove-condition-btn');
         
         const updateDescription = () => {
             const code = codeInput.value.trim().toUpperCase();
@@ -574,9 +666,14 @@ class CurriculumManager {
             }
         };
         
+        // Event listeners
         codeInput.addEventListener('input', updateDescription);
         cursoCheck.addEventListener('change', updateDescription);
         examenCheck.addEventListener('change', updateDescription);
+        removeBtn.addEventListener('click', () => {
+            div.remove();
+            this.checkGroupEmptyState(div.closest('.prerequisite-group'));
+        });
         
         return div;
     }
@@ -585,6 +682,40 @@ class CurriculumManager {
         const emptyState = container.querySelector('.empty-state');
         if (emptyState) {
             emptyState.remove();
+        }
+    }
+
+    // Check if prerequisites container should show empty state
+    checkEmptyState() {
+        const container = document.getElementById('prerequisites-container');
+        const hasPrereqs = container.querySelector('.prerequisite-item') || container.querySelector('.prerequisite-group');
+        
+        if (!hasPrereqs && !container.querySelector('.empty-state')) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-sitemap"></i>
+                    <p>No hay previas definidas</p>
+                    <small>Usa los botones de arriba para agregar prerequisitos</small>
+                </div>
+            `;
+        }
+    }
+
+    // Check if a group should show empty conditions state
+    checkGroupEmptyState(groupElement) {
+        if (!groupElement) return;
+        
+        const content = groupElement.querySelector('.prerequisite-group-content');
+        const hasConditions = content.querySelector('.group-condition');
+        
+        if (!hasConditions && !content.querySelector('.empty-conditions')) {
+            content.innerHTML = `
+                <div class="empty-conditions">
+                    <i class="fas fa-plus-circle"></i>
+                    <p>No hay condiciones agregadas</p>
+                    <small>Usa el botón "Agregar condición" para empezar</small>
+                </div>
+            `;
         }
     }
 
@@ -622,7 +753,7 @@ class CurriculumManager {
         }
 
         container.innerHTML = subjects.map(subject => `
-            <div class="search-result-item" onclick="curriculumManager.editSubject('${subject.codigo}')">
+            <div class="search-result-item">
                 <div class="search-result-header">
                     <span class="search-result-code">${subject.codigo}</span>
                     <span class="search-result-credits">${subject.creditos} créditos</span>
@@ -633,6 +764,14 @@ class CurriculumManager {
                     <span>Dictado: ${this.formatDictationSemester(subject.dictation_semester)}</span>
                     <span>${subject.exam_only ? 'Solo examen' : 'Curso + Examen'}</span>
                     <span>${subject.prerequisites?.length || 0} prerequisitos</span>
+                </div>
+                <div class="search-result-actions">
+                    <button class="btn btn-primary btn-sm" onclick="window.curriculumManager.editSubject('${subject.codigo}')">
+                        <i class="fas fa-edit"></i> Editar
+                    </button>
+                    <button class="btn btn-danger btn-sm" onclick="window.curriculumManager.deleteSubject('${subject.codigo}')">
+                        <i class="fas fa-trash"></i> Eliminar
+                    </button>
                 </div>
             </div>
         `).join('');
@@ -657,13 +796,52 @@ class CurriculumManager {
 
     editSubject(codigo) {
         const subject = this.subjects.find(s => s.codigo === codigo);
-        if (!subject) return;
+        if (!subject) {
+            this.showModal('Error', 'Materia no encontrada');
+            return;
+        }
 
         this.currentEditingSubject = subject;
         this.populateForm(subject);
         this.switchView('add');
         
+        // Update form title
         document.getElementById('form-title').textContent = `Editar: ${subject.codigo}`;
+        
+        // Focus on nombre field for editing
+        setTimeout(() => {
+            const nombreInput = document.getElementById('nombre');
+            if (nombreInput) nombreInput.focus();
+        }, 100);
+    }
+
+    deleteSubject(codigo) {
+        const subject = this.subjects.find(s => s.codigo === codigo);
+        if (!subject) {
+            this.showModal('Error', 'Materia no encontrada');
+            return;
+        }
+
+        this.showModal(
+            'Confirmar Eliminación',
+            `¿Estás seguro de que deseas eliminar la materia "${subject.codigo} - ${subject.nombre}"?\n\nEsta acción no se puede deshacer.`,
+            () => {
+                const index = this.subjects.findIndex(s => s.codigo === codigo);
+                if (index !== -1) {
+                    this.subjects.splice(index, 1);
+                    this.updateStatusInfo();
+                    this.updateManageStats();
+                    this.saveToBackend();
+                    this.showAllSubjects(); // Refresh the search results
+                    console.log(`Deleted subject: ${codigo}`);
+                    
+                    // Show success message
+                    setTimeout(() => {
+                        this.showModal('Éxito', `Materia "${codigo}" eliminada correctamente`);
+                    }, 100);
+                }
+            }
+        );
     }
 
     populateForm(subject) {
@@ -674,7 +852,108 @@ class CurriculumManager {
         document.getElementById('dictation_semester').value = subject.dictation_semester;
         document.getElementById('exam_only').checked = subject.exam_only;
         
-        // TODO: Populate prerequisites
+        // Clear existing prerequisites
+        const container = document.getElementById('prerequisites-container');
+        container.innerHTML = '';
+        
+        // Populate prerequisites
+        if (subject.prerequisites && subject.prerequisites.length > 0) {
+            this.clearEmptyState(container);
+            
+            subject.prerequisites.forEach(prereq => {
+                if (prereq.tipo === 'SIMPLE') {
+                    const prereqElement = this.createSimplePrerequisiteElement();
+                    
+                    // Fill in the data
+                    prereqElement.querySelector('.prereq-subject').value = prereq.codigo || '';
+                    prereqElement.querySelector('.prereq-description').value = prereq.description || '';
+                    prereqElement.querySelector('.prereq-curso').checked = prereq.requiere_curso || false;
+                    prereqElement.querySelector('.prereq-examen').checked = prereq.requiere_exoneracion || false;
+                    
+                    // Trigger description update
+                    const codeInput = prereqElement.querySelector('.prereq-subject');
+                    const event = new Event('input', { bubbles: true });
+                    codeInput.dispatchEvent(event);
+                    
+                    container.appendChild(prereqElement);
+                    
+                } else if (prereq.tipo === 'AND') {
+                    const groupElement = this.createPrerequisiteGroup('AND');
+                    
+                    // Set group description
+                    const descInput = groupElement.querySelector('.group-desc-input');
+                    if (descInput) descInput.value = prereq.description || '';
+                    
+                    // Add conditions
+                    if (prereq.condiciones && prereq.condiciones.length > 0) {
+                        const content = groupElement.querySelector('.prerequisite-group-content');
+                        const emptyState = content.querySelector('.empty-conditions');
+                        if (emptyState) emptyState.remove();
+                        
+                        prereq.condiciones.forEach(condition => {
+                            const conditionElement = this.createGroupConditionElement();
+                            
+                            conditionElement.querySelector('.condition-codigo').value = condition.codigo || '';
+                            conditionElement.querySelector('.condition-description').value = condition.description || '';
+                            conditionElement.querySelector('.condition-curso').checked = condition.requiere_curso || false;
+                            conditionElement.querySelector('.condition-examen').checked = condition.requiere_exoneracion || false;
+                            
+                            // Trigger description update
+                            const codeInput = conditionElement.querySelector('.condition-codigo');
+                            const event = new Event('input', { bubbles: true });
+                            codeInput.dispatchEvent(event);
+                            
+                            content.appendChild(conditionElement);
+                        });
+                    }
+                    
+                    container.appendChild(groupElement);
+                    
+                } else if (prereq.tipo === 'OR') {
+                    const groupElement = this.createPrerequisiteGroup('OR');
+                    
+                    // Set group description
+                    const descInput = groupElement.querySelector('.group-desc-input');
+                    if (descInput) descInput.value = prereq.description || '';
+                    
+                    // Add options as conditions
+                    if (prereq.opciones && prereq.opciones.length > 0) {
+                        const content = groupElement.querySelector('.prerequisite-group-content');
+                        const emptyState = content.querySelector('.empty-conditions');
+                        if (emptyState) emptyState.remove();
+                        
+                        prereq.opciones.forEach(option => {
+                            if (option.tipo === 'SIMPLE') {
+                                const conditionElement = this.createGroupConditionElement();
+                                
+                                conditionElement.querySelector('.condition-codigo').value = option.codigo || '';
+                                conditionElement.querySelector('.condition-description').value = option.description || '';
+                                conditionElement.querySelector('.condition-curso').checked = option.requiere_curso || false;
+                                conditionElement.querySelector('.condition-examen').checked = option.requiere_exoneracion || false;
+                                
+                                // Trigger description update
+                                const codeInput = conditionElement.querySelector('.condition-codigo');
+                                const event = new Event('input', { bubbles: true });
+                                codeInput.dispatchEvent(event);
+                                
+                                content.appendChild(conditionElement);
+                            }
+                        });
+                    }
+                    
+                    container.appendChild(groupElement);
+                }
+            });
+        } else {
+            // Show empty state if no prerequisites
+            container.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-sitemap"></i>
+                    <p>No hay previas definidas</p>
+                    <small>Usa los botones de arriba para agregar prerequisitos</small>
+                </div>
+            `;
+        }
     }
 
     resetForm() {
@@ -688,13 +967,20 @@ class CurriculumManager {
             container.innerHTML = `
                 <div class="empty-state">
                     <i class="fas fa-sitemap"></i>
-                    <p>No hay prerequisitos definidos</p>
+                    <p>No hay previas definidas</p>
                     <small>Usa los botones de arriba para agregar prerequisitos</small>
                 </div>
             `;
         }
         
+        // Reset editing state
         this.currentEditingSubject = null;
+        
+        // Reset form title
+        const formTitle = document.getElementById('form-title');
+        if (formTitle) {
+            formTitle.textContent = 'Agregar Nueva Materia';
+        }
     }
 
     // Export/Import functionality
@@ -705,7 +991,7 @@ class CurriculumManager {
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = 'ucs-migrated.json';
+            a.download = `ucs-migrated-${new Date().toISOString().slice(0, 10)}.json`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);

@@ -1,6 +1,6 @@
 /**
  * Curriculum Manager - Modern UI
- * Gestión de Unidades Curriculares con prerequisitos complejos
+ * Gestión de Unidades Curriculares con previas complejos
  */
 
 class CurriculumManager {
@@ -688,7 +688,7 @@ class CurriculumManager {
             container.innerHTML = `
                 <div class="empty-state">
                     <i class="fas fa-sitemap"></i>
-                    <p>No hay prerequisitos definidos</p>
+                    <p>No hay previas definidas</p>
                     <small>Usa los botones de arriba para agregar prerequisitos</small>
                 </div>
             `;
